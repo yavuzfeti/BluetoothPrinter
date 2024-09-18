@@ -34,13 +34,12 @@ class _BluetoothPrinterState extends State<BluetoothPrinter> {
     setState(() {
       loading = true;
     });
-    devicesList = [];
     if (await Permission.bluetoothScan.isDenied || await Permission.bluetoothConnect.isDenied)
     {
       await [Permission.bluetoothScan, Permission.bluetoothConnect, Permission.location,].request();
     }
     FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
-    FlutterBluePlus.scanResults.listen((results)
+    await FlutterBluePlus.scanResults.listen((results)
     {
       for (ScanResult r in results)
       {
@@ -52,7 +51,6 @@ class _BluetoothPrinterState extends State<BluetoothPrinter> {
         }
       }
     });
-    await Future.delayed(const Duration(seconds:1));
     setState(() {
       loading = false;
     });
@@ -132,12 +130,15 @@ class _BluetoothPrinterState extends State<BluetoothPrinter> {
         saveDevicesList = prefsList.map((e) => BluetoothDevice.fromId(e)).toList();
       }
     });
-    await scanDevices();
+    scanDevices();
   }
 
   @override
   Widget build(BuildContext context) {
     bool unknown = false;
+
+    SizedBox loadingIcon = const SizedBox(width: 20,height: 20, child: CircularProgressIndicator());
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("Kayıtlı Bluetooth Cihazları"),
@@ -145,7 +146,7 @@ class _BluetoothPrinterState extends State<BluetoothPrinter> {
       ),
       floatingActionButton: FloatingActionButton.extended(
           icon: loading
-              ? const SizedBox(width: 20,height: 20, child: CircularProgressIndicator())
+              ? loadingIcon
               : const Icon(Icons.adf_scanner_rounded),
           label: const Text("Yeni Cihaz Ekle"),
           onPressed: () async
@@ -154,57 +155,78 @@ class _BluetoothPrinterState extends State<BluetoothPrinter> {
             await showModalBottomSheet(
               context: context,
               isScrollControlled: true,
-              backgroundColor: Colors.white,
               builder: (BuildContext context) => StatefulBuilder(
-                builder: (context,set) {
-                  return Container(
-                    decoration: const BoxDecoration(
-                      borderRadius: BorderRadius.only(
-                        topLeft: Radius.circular(25),
-                        topRight: Radius.circular(25),
+                  builder: (context,set) {
+                    return Container(
+                      decoration: const BoxDecoration(
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(25),
+                          topRight: Radius.circular(25),
+                        ),
                       ),
-                    ),
-                    padding: const EdgeInsets.all(15),
-                    width: double.infinity,
-                    height: MediaQuery.sizeOf(context).height/3*2,
-                    child: Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 15),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text("Cihaz Ekle",style: TextStyle(fontSize: 20,fontWeight: FontWeight.bold)),
-                              Row(
-                                children: [
-                                  const Text("Diğer Cihazlar",style: TextStyle(fontSize: 17)),
-                                  const SizedBox(width:5),
-                                  Switch(value: unknown, onChanged: (v) {set((){unknown = v;});}),
-                                ],
-                              )
-                            ],
+                      padding: const EdgeInsets.all(15),
+                      width: double.infinity,
+                      height: MediaQuery.sizeOf(context).height/3*2,
+                      child: Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 15),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Text("Cihaz Ekle",style: TextStyle(fontSize: 20,fontWeight: FontWeight.bold)),
+                                    IconButton(onPressed: () async
+                                    {
+                                      setState(() {
+                                        set(() {
+                                          loading = true;
+                                        });
+                                      });
+                                      await scanDevices();
+                                      await Future.delayed(const Duration(seconds: 1));
+                                      setState(() {
+                                        set(() {
+                                          loading = false;
+                                          devicesList;
+                                        });
+                                      });
+                                    },
+                                        icon: loading ? loadingIcon : const Icon(Icons.refresh_rounded)
+                                    ),
+                                  ],
+                                ),
+                                Row(
+                                  children: [
+                                    const Text("Diğer Cihazlar",style: TextStyle(fontSize: 17)),
+                                    const SizedBox(width:5),
+                                    Switch(value: unknown, onChanged: (v) {set((){unknown = v;});}),
+                                  ],
+                                )
+                              ],
+                            ),
                           ),
-                        ),
-                        Expanded(
-                          child: ListView.builder(
-                            itemCount: devicesList.length,
-                            itemBuilder: (context, index)
-                            {
-                              BluetoothDevice device = devicesList[index];
-                              String deviceName = device.platformName;
-                              return (!unknown && deviceName.isEmpty)
-                                  ? Container()
-                                  : ListTile(
-                                title: Text(deviceName.isNotEmpty ? deviceName : device.remoteId.toString()),
-                                onTap: () async {await connectToDevice(device);Navigator.pop(context);},
-                              );
-                            },
+                          Expanded(
+                            child: ListView.builder(
+                              itemCount: devicesList.length,
+                              itemBuilder: (context, index)
+                              {
+                                BluetoothDevice device = devicesList[index];
+                                String deviceName = device.platformName;
+                                return (!unknown && deviceName.isEmpty)
+                                    ? Container()
+                                    : ListTile(
+                                  title: Text(deviceName.isNotEmpty ? deviceName : device.remoteId.toString()),
+                                  onTap: () async {connectToDevice(device);Navigator.pop(context);},
+                                );
+                              },
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
+                        ],
+                      ),
+                    );
+                  }
               ),
             );
           }
@@ -213,18 +235,18 @@ class _BluetoothPrinterState extends State<BluetoothPrinter> {
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
         onRefresh: loadDevices,
-            child: ListView.builder(
-                    itemCount: saveDevicesList.length,
-                    itemBuilder: (context, index) {
-            BluetoothDevice device = saveDevicesList[index];
-            return ListTile(
-              title: Text(device.platformName.isNotEmpty ? device.platformName : device.remoteId.toString()),
-              onTap: () async => await printText(device),
-              trailing: IconButton(
-                icon: const Icon(Icons.delete, color: Colors.red,),
-                onPressed: () async => await removeDevice(device),
-              ),
-            );}),
+        child: ListView.builder(
+            itemCount: saveDevicesList.length,
+            itemBuilder: (context, index) {
+              BluetoothDevice device = saveDevicesList[index];
+              return ListTile(
+                title: Text(device.platformName.isNotEmpty ? device.platformName : device.remoteId.toString()),
+                onTap: () async => await printText(device),
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red,),
+                  onPressed: () async => await removeDevice(device),
+                ),
+              );}),
       ),
     );
   }
